@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="航空距離計">
+    <meta name="theme-color" content="#00ff41">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+    <link rel="manifest" href="manifest.json">
+    <title>航空機用距離計測システム</title>
+    <style>
+        /* フォント読み込み - デジタル計器風 */
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;500;700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            overflow: hidden;
+            background: #000;
+            color: #0f0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* カメラ映像 */
+        #camera {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            z-index: 1;
+        }
+
+        /* HUDオーバーレイ */
+        #hud {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        /* 中央十字照準 */
+        .crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80px;
+            height: 80px;
+        }
+
+        .crosshair::before,
+        .crosshair::after {
+            content: '';
+            position: absolute;
+            background: #00ff41;
+            box-shadow: 0 0 10px #00ff41, 0 0 20px #00ff41;
+            transition: background 0.3s, box-shadow 0.3s;
+        }
+
+        .crosshair.alert::before,
+        .crosshair.alert::after {
+            background: #ffcc00;
+            box-shadow: 0 0 10px #ffcc00, 0 0 20px #ffcc00;
+        }
+
+        .crosshair::before {
+            width: 2px;
+            height: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .crosshair::after {
+            height: 2px;
+            width: 100%;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .crosshair-circle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            border: 2px solid #00ff41;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #00ff41, inset 0 0 10px #00ff41;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+
+        .crosshair.alert .crosshair-circle {
+            border-color: #ffcc00;
+            box-shadow: 0 0 10px #ffcc00, inset 0 0 10px #ffcc00;
+        }
+
+        /* 左上: 距離表示 */
+        .distance-display {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid #00ff41;
+            padding: 15px 25px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.5), inset 0 0 10px rgba(0, 255, 65, 0.2);
+            pointer-events: all;
+        }
+
+        .distance-label {
+            font-size: 14px;
+            font-weight: 300;
+            color: #00ff41;
+            margin-bottom: 5px;
+            letter-spacing: 2px;
+        }
+
+        .distance-value {
+            font-family: 'Orbitron', monospace;
+            font-size: 48px;
+            font-weight: 900;
+            color: #00ff41;
+            text-shadow: 0 0 10px #00ff41, 0 0 20px #00ff41;
+            line-height: 1;
+        }
+
+        .distance-unit {
+            font-size: 24px;
+            margin-left: 5px;
+        }
+
+        /* 右側: レンジバー */
+        .range-bar-container {
+            position: absolute;
+            right: 30px;
+            top: 180px;
+            height: 60%;
+            width: 60px;
+            pointer-events: all;
+        }
+
+        .range-bar {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to top, rgba(0, 255, 65, 0.1), rgba(255, 0, 0, 0.1));
+            border: 2px solid #00ff41;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.5), inset 0 0 20px rgba(0, 0, 0, 0.8);
+            box-sizing: border-box;
+        }
+
+        .range-marker {
+            position: absolute;
+            width: calc(100% - 4px);
+            height: 2px;
+            background: rgba(0, 255, 65, 0.6);
+            left: 2px;
+        }
+
+        .range-label {
+            position: absolute;
+            right: 70px;
+            font-size: 14px;
+            color: #00ff41;
+            transform: translateY(-50%);
+            font-weight: 500;
+            text-shadow: 0 0 5px #00ff41;
+        }
+
+        .range-indicator {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #ff0044;
+            border: 3px solid #fff;
+            border-radius: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 15px #ff0044, 0 0 30px #ff0044;
+            transition: bottom 0.3s ease-out;
+            z-index: 2;
+        }
+
+        /* 設定パネル - 中央に配置 */
+        .control-panel {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #00ff41;
+            padding: 20px 25px;
+            border-radius: 15px;
+            box-shadow: 0 0 30px rgba(0, 255, 65, 0.5);
+            pointer-events: all;
+            max-width: 90vw;
+            max-height: 80vh;
+            overflow-y: auto;
+            transition: opacity 0.3s, transform 0.3s;
+            z-index: 50;
+        }
+
+        .control-panel.hidden {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(0.9);
+            pointer-events: none;
+        }
+
+        .toggle-panel-btn {
+            position: absolute;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid #00ff41;
+            color: #00ff41;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            pointer-events: all;
+            box-shadow: 0 0 15px rgba(0, 255, 65, 0.5);
+            transition: all 0.3s;
+            z-index: 40;
+        }
+
+        .toggle-panel-btn:active {
+            transform: translateX(-50%) scale(0.95);
+        }
+        
+        .toggle-panel-btn.panel-open {
+            opacity: 0.5;
+        }
+
+        .control-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .control-label {
+            font-size: 14px;
+            color: #00ff41;
+            min-width: 120px;
+            font-weight: 500;
+        }
+
+        .control-input {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid #00ff41;
+            color: #00ff41;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-family: 'Orbitron', monospace;
+            font-size: 14px;
+            width: 100px;
+        }
+
+        .control-btn {
+            background: rgba(0, 255, 65, 0.2);
+            border: 2px solid #00ff41;
+            color: #00ff41;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .control-btn:active {
+            transform: scale(0.95);
+            background: rgba(0, 255, 65, 0.4);
+        }
+
+        .control-btn.small {
+            padding: 5px 12px;
+            font-size: 16px;
+            min-width: 40px;
+        }
+
+        .calibration-display {
+            font-family: 'Orbitron', monospace;
+            font-size: 18px;
+            color: #00ff41;
+            margin: 0 10px;
+            text-shadow: 0 0 5px #00ff41;
+        }
+
+        /* センサー許可オーバーレイ */
+        .permission-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(135deg, #000 0%, #001a00 100%);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .permission-overlay.hidden {
+            display: none;
+        }
+
+        .system-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 32px;
+            font-weight: 900;
+            color: #00ff41;
+            text-align: center;
+            margin-bottom: 30px;
+            text-shadow: 0 0 20px #00ff41, 0 0 40px #00ff41;
+            letter-spacing: 4px;
+        }
+
+        .permission-text {
+            font-size: 18px;
+            color: #00ff41;
+            text-align: center;
+            margin-bottom: 40px;
+            max-width: 400px;
+            line-height: 1.6;
+        }
+
+        .start-btn {
+            background: rgba(0, 255, 65, 0.3);
+            border: 3px solid #00ff41;
+            color: #00ff41;
+            padding: 20px 50px;
+            border-radius: 15px;
+            font-family: 'Orbitron', monospace;
+            font-size: 24px;
+            font-weight: 900;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            box-shadow: 0 0 30px rgba(0, 255, 65, 0.6), inset 0 0 20px rgba(0, 255, 65, 0.2);
+            transition: all 0.3s;
+            animation: pulse 2s infinite;
+        }
+
+        .start-btn:active {
+            transform: scale(0.95);
+            background: rgba(0, 255, 65, 0.5);
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 0 30px rgba(0, 255, 65, 0.6), inset 0 0 20px rgba(0, 255, 65, 0.2);
+            }
+            50% {
+                box-shadow: 0 0 50px rgba(0, 255, 65, 0.8), inset 0 0 30px rgba(0, 255, 65, 0.3);
+            }
+        }
+
+        .warning-text {
+            color: #ff6600;
+            font-size: 14px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        /* ステータス表示 */
+        .status-display {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid #00ff41;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #00ff41;
+            pointer-events: all;
+        }
+
+        .angle-display {
+            font-family: 'Orbitron', monospace;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        /* 水平ゼロ設定ボタン（右上に配置） */
+        .zero-btn-top {
+            position: absolute;
+            top: 120px;
+            right: 20px;
+            background: rgba(0, 255, 65, 0.2);
+            border: 2px solid #00ff41;
+            color: #00ff41;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            pointer-events: all;
+            box-shadow: 0 0 15px rgba(0, 255, 65, 0.3);
+        }
+
+        .zero-btn-top:active {
+            transform: scale(0.95);
+            background: rgba(0, 255, 65, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <!-- センサー許可オーバーレイ -->
+    <div class="permission-overlay" id="permissionOverlay">
+        <div class="system-title">航空距離計測システム</div>
+        <div class="permission-text">
+            このアプリはiPadのジャイロセンサーを使用して<br>
+            地上目標までの距離を計測します。<br><br>
+            センサーの使用許可が必要です。
+        </div>
+        <button class="start-btn" id="startBtn">システム起動</button>
+        <div class="warning-text">※ 横持ち推奨</div>
+    </div>
+
+    <!-- カメラ映像 -->
+    <video id="camera" playsinline muted></video>
+
+    <!-- HUD -->
+    <div id="hud">
+        <!-- 中央十字照準 -->
+        <div class="crosshair">
+            <div class="crosshair-circle"></div>
+        </div>
+
+        <!-- 左上: 距離表示 -->
+        <div class="distance-display">
+            <div class="distance-label">TARGET DISTANCE</div>
+            <div class="distance-value">
+                <span id="distanceValue">----</span>
+                <span class="distance-unit">m</span>
+            </div>
+        </div>
+
+        <!-- 右側: レンジバー -->
+        <div class="range-bar-container">
+            <div class="range-bar" id="rangeBar">
+                <div class="range-indicator" id="rangeIndicator"></div>
+            </div>
+        </div>
+
+        <!-- ステータス表示 -->
+        <div class="status-display">
+            <div>センサー: <span id="sensorStatus">待機中</span></div>
+            <div class="angle-display">角度: <span id="angleValue">--</span>°</div>
+        </div>
+
+        <!-- 水平ゼロ設定ボタン（右上） -->
+        <button class="zero-btn-top" id="zeroBtnTop">水平ゼロ設定</button>
+
+        <!-- 設定パネル -->
+        <div class="control-panel hidden" id="controlPanel">
+            <div class="control-row">
+                <span class="control-label">持ち方:</span>
+                <button class="control-btn small" id="orientLandscape" style="padding: 8px 15px; opacity: 0.5;">横持ち</button>
+                <button class="control-btn small" id="orientPortrait" style="padding: 8px 15px;">縦持ち</button>
+            </div>
+            <div class="control-row">
+                <span class="control-label">自機高度 (ft):</span>
+                <input type="number" class="control-input" id="aircraftAlt" value="10000" step="100">
+            </div>
+            <div class="control-row">
+                <span class="control-label">対象高度 (ft):</span>
+                <input type="number" class="control-input" id="targetAlt" value="0" step="10">
+            </div>
+            <div class="control-row">
+                <span class="control-label">通知距離 (m):</span>
+                <input type="number" class="control-input" id="alertDistance" value="1000" step="100">
+            </div>
+            <div class="control-row">
+                <span class="control-label">バー最大 (m):</span>
+                <input type="number" class="control-input" id="maxRange" value="5000" step="100">
+            </div>
+            <div class="control-row">
+                <span class="control-label">目印目盛 (m):</span>
+                <input type="text" class="control-input" id="markers" value="1000,2000,3000,4000" placeholder="例: 1000,2000" style="width: 180px;">
+            </div>
+            <div class="control-row">
+                <span class="control-label">微調整:</span>
+                <button class="control-btn small" id="calibrateMinus">-</button>
+                <span class="calibration-display" id="calibrationValue">0.0°</span>
+                <button class="control-btn small" id="calibratePlus">+</button>
+            </div>
+        </div>
+
+        <!-- パネル表示切替ボタン -->
+        <button class="toggle-panel-btn" id="togglePanelBtn">設定</button>
+    </div>
+
+    <script>
+        // ===================================
+        // グローバル変数
+        // ===================================
+        let sensorCalibration = 0;  // センサー補正値（度）
+        let currentAngle = 0;       // 現在のセンサー角度（度）
+        let lastRawBeta = 0;        // 生のbeta値を保存
+        let lastRawGamma = 0;       // 生のgamma値を保存
+        let sensorPermissionGranted = false;
+        let isLandscape = false;    // 横持ち=true, 縦持ち=false（初期値は縦持ち）
+
+        // ===================================
+        // DOM要素取得
+        // ===================================
+        const permissionOverlay = document.getElementById('permissionOverlay');
+        const startBtn = document.getElementById('startBtn');
+        const camera = document.getElementById('camera');
+        const distanceValue = document.getElementById('distanceValue');
+        const sensorStatus = document.getElementById('sensorStatus');
+        const angleValue = document.getElementById('angleValue');
+        const rangeBar = document.getElementById('rangeBar');
+        const rangeIndicator = document.getElementById('rangeIndicator');
+        const controlPanel = document.getElementById('controlPanel');
+        const togglePanelBtn = document.getElementById('togglePanelBtn');
+        const crosshair = document.querySelector('.crosshair');
+        
+        const aircraftAltInput = document.getElementById('aircraftAlt');
+        const targetAltInput = document.getElementById('targetAlt');
+        const maxRangeInput = document.getElementById('maxRange');
+        const markersInput = document.getElementById('markers');
+        const alertDistanceInput = document.getElementById('alertDistance');
+        const zeroBtnTop = document.getElementById('zeroBtnTop');
+        const calibratePlus = document.getElementById('calibratePlus');
+        const calibrateMinus = document.getElementById('calibrateMinus');
+        const calibrationValue = document.getElementById('calibrationValue');
+        
+        const orientLandscape = document.getElementById('orientLandscape');
+        const orientPortrait = document.getElementById('orientPortrait');
+
+        // ===================================
+        // 初期化: センサー許可リクエスト
+        // ===================================
+        startBtn.addEventListener('click', async () => {
+            try {
+                // iOS 13+ ではセンサー許可が必要
+                if (typeof DeviceOrientationEvent !== 'undefined' && 
+                    typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission === 'granted') {
+                        sensorPermissionGranted = true;
+                        initializeApp();
+                    } else {
+                        alert('センサーの許可が必要です');
+                    }
+                } else {
+                    // iOS 12以前、またはAndroid
+                    sensorPermissionGranted = true;
+                    initializeApp();
+                }
+            } catch (error) {
+                console.error('センサー許可エラー:', error);
+                alert('センサーの初期化に失敗しました');
+            }
+        });
+
+        // ===================================
+        // アプリ初期化
+        // ===================================
+        async function initializeApp() {
+            // オーバーレイを非表示
+            permissionOverlay.classList.add('hidden');
+
+            // カメラ起動
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',  // 背面カメラ
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    }
+                });
+                camera.srcObject = stream;
+                
+                // 明示的に再生を開始（ユーザーインタラクション後なので可能）
+                await camera.play();
+            } catch (error) {
+                console.error('カメラエラー:', error);
+                alert('カメラの起動に失敗しました。設定を確認してください。');
+            }
+
+            // センサーイベント登録
+            window.addEventListener('deviceorientation', handleOrientation, true);
+            sensorStatus.textContent = '動作中';
+
+            // レンジバー目盛り描画
+            updateRangeMarkers();
+        }
+
+        // ===================================
+        // センサーデータ処理（ジャイロ）
+        // カメラ視線方向（画面垂直方向）の角度を計算
+        // ===================================
+        function handleOrientation(event) {
+            // 生の角度を保存
+            lastRawBeta = event.beta || 0;
+            lastRawGamma = event.gamma || 0;
+            
+            let rawAngle = 0;
+            
+            // 手動設定された持ち方に基づいて角度を選択
+            // iPadのセンサー軸の関係で、横持ち時はgamma、縦持ち時はbetaを使用
+            if (isLandscape) {
+                // 横持ち: gammaが視線方向の上下角度
+                rawAngle = lastRawGamma;
+            } else {
+                // 縦持ち: betaが視線方向の上下角度
+                rawAngle = lastRawBeta;
+            }
+
+            // 補正値を適用
+            currentAngle = rawAngle - sensorCalibration;
+
+            // 表示更新
+            angleValue.textContent = currentAngle.toFixed(1);
+
+            // 距離計算
+            calculateDistance();
+        }
+
+        // ===================================
+        // 距離計算ロジック
+        // ===================================
+        function calculateDistance() {
+            // 入力値取得
+            const aircraftAltFt = parseFloat(aircraftAltInput.value) || 0;
+            const targetAltFt = parseFloat(targetAltInput.value) || 0;
+            const alertDistance = parseFloat(alertDistanceInput.value) || 1000;
+            
+            // フィートをメートルに変換 (1 ft = 0.3048 m)
+            const heightDiffM = (aircraftAltFt - targetAltFt) * 0.3048;
+            
+            // 角度をラジアンに変換
+            const angleRad = currentAngle * Math.PI / 180;
+            
+            // tan(角度)がゼロに近い場合は計算しない
+            if (Math.abs(Math.tan(angleRad)) < 0.001) {
+                distanceValue.textContent = '----';
+                crosshair.classList.remove('alert');
+                return;
+            }
+            
+            // 水平距離 = 高度差 / tan(角度)
+            // 負の角度（下向き）で正の距離が出るように絶対値を使用
+            const distance = Math.abs(heightDiffM / Math.tan(angleRad));
+            
+            // 負の値や異常値の場合
+            if (distance < 0 || !isFinite(distance)) {
+                distanceValue.textContent = '----';
+                updateRangeIndicator(null);
+                crosshair.classList.remove('alert');
+                return;
+            }
+            
+            // 表示更新
+            distanceValue.textContent = Math.round(distance);
+            
+            // 通知距離以下の場合、十字照準を黄色に変更
+            if (distance <= alertDistance) {
+                crosshair.classList.add('alert');
+            } else {
+                crosshair.classList.remove('alert');
+            }
+            
+            // レンジバー更新
+            updateRangeIndicator(distance);
+        }
+
+        // ===================================
+        // レンジバー目盛り描画
+        // ===================================
+        function updateRangeMarkers() {
+            // 既存の目盛りを削除
+            const existingMarkers = rangeBar.querySelectorAll('.range-marker, .range-label');
+            existingMarkers.forEach(el => el.remove());
+
+            const maxRange = parseFloat(maxRangeInput.value) || 5000;
+            const markersText = markersInput.value || '';
+            const markers = markersText.split(',')
+                .map(m => parseFloat(m.trim()))
+                .filter(m => !isNaN(m) && m > 0 && m <= maxRange);
+
+            markers.forEach(marker => {
+                // バーの下端が最大値、上端が0
+                const percentage = ((maxRange - marker) / maxRange) * 100;
+                
+                // 横線
+                const line = document.createElement('div');
+                line.className = 'range-marker';
+                line.style.bottom = percentage + '%';
+                rangeBar.appendChild(line);
+                
+                // ラベル
+                const label = document.createElement('div');
+                label.className = 'range-label';
+                label.textContent = marker + 'm';
+                label.style.bottom = percentage + '%';
+                rangeBar.appendChild(label);
+            });
+        }
+
+        // ===================================
+        // レンジバーインジケーター更新
+        // ===================================
+        function updateRangeIndicator(distance) {
+            if (distance === null || distance === undefined) {
+                rangeIndicator.style.display = 'none';
+                return;
+            }
+            
+            rangeIndicator.style.display = 'block';
+            
+            const maxRange = parseFloat(maxRangeInput.value) || 5000;
+            
+            // 範囲外の場合は端に固定
+            if (distance > maxRange) {
+                rangeIndicator.style.bottom = '0%';
+            } else if (distance < 0) {
+                rangeIndicator.style.bottom = '100%';
+            } else {
+                // バーの下端が最大値、上端が0
+                const percentage = ((maxRange - distance) / maxRange) * 100;
+                rangeIndicator.style.bottom = percentage + '%';
+            }
+        }
+
+        // ===================================
+        // ゼロ点調整（ボアサイティング）- 右上のボタン
+        // アラートを削除してカメラが止まらないようにする
+        // ===================================
+        zeroBtnTop.addEventListener('click', () => {
+            // 手動設定された持ち方に基づいて補正値を設定
+            if (isLandscape) {
+                // 横持ち: gammaを使用
+                sensorCalibration = lastRawGamma;
+            } else {
+                // 縦持ち: betaを使用
+                sensorCalibration = lastRawBeta;
+            }
+            
+            calibrationValue.textContent = sensorCalibration.toFixed(1) + '°';
+            
+            // 視覚的フィードバック（アラートの代わり）
+            zeroBtnTop.textContent = '✓ 完了';
+            zeroBtnTop.style.background = 'rgba(0, 255, 65, 0.5)';
+            setTimeout(() => {
+                zeroBtnTop.textContent = '水平ゼロ設定';
+                zeroBtnTop.style.background = 'rgba(0, 255, 65, 0.2)';
+            }, 1500);
+        });
+
+        // ===================================
+        // 微調整ボタン
+        // ===================================
+        calibratePlus.addEventListener('click', () => {
+            sensorCalibration += 0.1;
+            calibrationValue.textContent = sensorCalibration.toFixed(1) + '°';
+        });
+
+        calibrateMinus.addEventListener('click', () => {
+            sensorCalibration -= 0.1;
+            calibrationValue.textContent = sensorCalibration.toFixed(1) + '°';
+        });
+
+        // ===================================
+        // パネル表示切替
+        // ===================================
+        let panelVisible = false;  // 初期状態は非表示
+        togglePanelBtn.addEventListener('click', () => {
+            panelVisible = !panelVisible;
+            if (panelVisible) {
+                controlPanel.classList.remove('hidden');
+                togglePanelBtn.textContent = '設定を隠す';
+                togglePanelBtn.classList.add('panel-open');
+            } else {
+                controlPanel.classList.add('hidden');
+                togglePanelBtn.textContent = '設定';
+                togglePanelBtn.classList.remove('panel-open');
+            }
+        });
+
+        // ===================================
+        // 持ち方選択ボタン
+        // ===================================
+        orientLandscape.addEventListener('click', () => {
+            isLandscape = true;
+            orientLandscape.style.opacity = '1';
+            orientPortrait.style.opacity = '0.5';
+        });
+
+        orientPortrait.addEventListener('click', () => {
+            isLandscape = false;
+            orientLandscape.style.opacity = '0.5';
+            orientPortrait.style.opacity = '1';
+        });
+
+        // ===================================
+        // 入力変更時の処理
+        // ===================================
+        maxRangeInput.addEventListener('change', updateRangeMarkers);
+        markersInput.addEventListener('change', updateRangeMarkers);
+
+        // ===================================
+        // 画面の向き変更を検知
+        // ===================================
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => {
+                updateRangeMarkers();
+            }, 100);
+        });
+
+        // リサイズ時も更新
+        window.addEventListener('resize', () => {
+            updateRangeMarkers();
+        });
+    </script>
+</body>
+</html>
