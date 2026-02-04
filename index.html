@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="航空距離計">
-    <title>航空機用距離計測システム</title>
+    <title>距離測定</title>
     <style>
         /* フォント読み込み - デジタル計器風 */
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;500;700&display=swap');
@@ -145,7 +145,7 @@
         .range-bar-container {
             position: absolute;
             right: 30px;
-            top: 15%;
+            top: 30%;
             height: 70%;
             width: 60px;
             pointer-events: all;
@@ -434,14 +434,14 @@
 <body>
     <!-- センサー許可オーバーレイ -->
     <div class="permission-overlay" id="permissionOverlay">
-        <div class="system-title">航空距離計測システム</div>
+        <div class="system-title">距離計測</div>
         <div class="permission-text">
-            このアプリはiPadのジャイロセンサーを使用して<br>
+            このアプリはジャイロセンサーを使用して<br>
             地上目標までの距離を計測します。<br><br>
             センサーの使用許可が必要です。
         </div>
-        <button class="start-btn" id="startBtn">システム起動</button>
-        <div class="warning-text">※ 横持ち推奨</div>
+        <button class="start-btn" id="startBtn">測定開始</button>
+        <div class="warning-text">※ 縦持ち推奨</div>
     </div>
 
     <!-- カメラ映像 -->
