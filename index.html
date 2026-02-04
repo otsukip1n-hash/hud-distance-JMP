@@ -6,7 +6,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="航空距離計">
-    <title>距離測定</title>
+    <meta name="theme-color" content="#00ff41">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+    <link rel="manifest" href="manifest.json">
+    <title>航空機用距離計測システム</title>
     <style>
         /* フォント読み込み - デジタル計器風 */
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;500;700&display=swap');
@@ -145,8 +149,8 @@
         .range-bar-container {
             position: absolute;
             right: 30px;
-            top: 30%;
-            height: 55%;
+            top: 180px;
+            height: 60%;
             width: 60px;
             pointer-events: all;
         }
@@ -159,14 +163,15 @@
             border: 2px solid #00ff41;
             border-radius: 10px;
             box-shadow: 0 0 20px rgba(0, 255, 65, 0.5), inset 0 0 20px rgba(0, 0, 0, 0.8);
+            box-sizing: border-box;
         }
 
         .range-marker {
             position: absolute;
-            width: 100%;
+            width: calc(100% - 4px);
             height: 2px;
             background: rgba(0, 255, 65, 0.6);
-            left: 0;
+            left: 2px;
         }
 
         .range-label {
@@ -189,7 +194,7 @@
             left: 50%;
             transform: translate(-50%, -50%);
             box-shadow: 0 0 15px #ff0044, 0 0 30px #ff0044;
-            transition: top 0.3s ease-out;
+            transition: bottom 0.3s ease-out;
             z-index: 2;
         }
 
@@ -358,6 +363,256 @@
             cursor: pointer;
             text-transform: uppercase;
             letter-spacing: 3px;
+            box-shadow: 0 0 30px rgba(0, 255, 65, 0.6), inset 0 0 20px rgba(0, 255, 65, 0.2);
+            transition: all 0.3s;
+            animation: pulse 2s infinite;
+        }
+
+        .start-btn:active {
+            transform: scale(0.95);
+            background: rgba(0, 255, 65, 0.5);
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 0 30px rgba(0, 255, 65, 0.6), inset 0 0 20px rgba(0, 255, 65, 0.2);
+            }
+            50% {
+                box-shadow: 0 0 50px rgba(0, 255, 65, 0.8), inset 0 0 30px rgba(0, 255, 65, 0.3);
+            }
+        }
+
+        .warning-text {
+            color: #ff6600;
+            font-size: 14px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        /* ステータス表示 */
+        .status-display {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid #00ff41;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #00ff41;
+            pointer-events: all;
+        }
+
+        .angle-display {
+            font-family: 'Orbitron', monospace;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        /* 水平ゼロ設定ボタン（右上に配置） */
+        .zero-btn-top {
+            position: absolute;
+            top: 120px;
+            right: 20px;
+            background: rgba(0, 255, 65, 0.2);
+            border: 2px solid #00ff41;
+            color: #00ff41;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            pointer-events: all;
+            box-shadow: 0 0 15px rgba(0, 255, 65, 0.3);
+        }
+
+        .zero-btn-top:active {
+            transform: scale(0.95);
+            background: rgba(0, 255, 65, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <!-- センサー許可オーバーレイ -->
+    <div class="permission-overlay" id="permissionOverlay">
+        <div class="system-title">航空距離計測システム</div>
+        <div class="permission-text">
+            このアプリはiPadのジャイロセンサーを使用して<br>
+            地上目標までの距離を計測します。<br><br>
+            センサーの使用許可が必要です。
+        </div>
+        <button class="start-btn" id="startBtn">システム起動</button>
+        <div class="warning-text">※ 横持ち推奨</div>
+    </div>
+
+    <!-- カメラ映像 -->
+    <video id="camera" playsinline autoplay></video>
+
+    <!-- HUD -->
+    <div id="hud">
+        <!-- 中央十字照準 -->
+        <div class="crosshair">
+            <div class="crosshair-circle"></div>
+        </div>
+
+        <!-- 左上: 距離表示 -->
+        <div class="distance-display">
+            <div class="distance-label">TARGET DISTANCE</div>
+            <div class="distance-value">
+                <span id="distanceValue">----</span>
+                <span class="distance-unit">m</span>
+            </div>
+        </div>
+
+        <!-- 右側: レンジバー -->
+        <div class="range-bar-container">
+            <div class="range-bar" id="rangeBar">
+                <div class="range-indicator" id="rangeIndicator"></div>
+            </div>
+        </div>
+
+        <!-- ステータス表示 -->
+        <div class="status-display">
+            <div>センサー: <span id="sensorStatus">待機中</span></div>
+            <div class="angle-display">角度: <span id="angleValue">--</span>°</div>
+        </div>
+
+        <!-- 水平ゼロ設定ボタン（右上） -->
+        <button class="zero-btn-top" id="zeroBtnTop">水平ゼロ設定</button>
+
+        <!-- 設定パネル -->
+        <div class="control-panel hidden" id="controlPanel">
+            <div class="control-row">
+                <span class="control-label">持ち方:</span>
+                <button class="control-btn small" id="orientLandscape" style="padding: 8px 15px; opacity: 0.5;">横持ち</button>
+                <button class="control-btn small" id="orientPortrait" style="padding: 8px 15px;">縦持ち</button>
+            </div>
+            <div class="control-row">
+                <span class="control-label">自機高度 (ft):</span>
+                <input type="number" class="control-input" id="aircraftAlt" value="10000" step="100">
+            </div>
+            <div class="control-row">
+                <span class="control-label">対象高度 (ft):</span>
+                <input type="number" class="control-input" id="targetAlt" value="0" step="10">
+            </div>
+            <div class="control-row">
+                <span class="control-label">通知距離 (m):</span>
+                <input type="number" class="control-input" id="alertDistance" value="1000" step="100">
+            </div>
+            <div class="control-row">
+                <span class="control-label">バー最大 (m):</span>
+                <input type="number" class="control-input" id="maxRange" value="5000" step="100">
+            </div>
+            <div class="control-row">
+                <span class="control-label">目印目盛 (m):</span>
+                <input type="text" class="control-input" id="markers" value="1000,2000,3000,4000" placeholder="例: 1000,2000" style="width: 180px;">
+            </div>
+            <div class="control-row">
+                <span class="control-label">微調整:</span>
+                <button class="control-btn small" id="calibrateMinus">-</button>
+                <span class="calibration-display" id="calibrationValue">0.0°</span>
+                <button class="control-btn small" id="calibratePlus">+</button>
+            </div>
+        </div>
+
+        <!-- パネル表示切替ボタン -->
+        <button class="toggle-panel-btn" id="togglePanelBtn">設定</button>
+    </div>
+
+    <script>
+        // ===================================
+        // グローバル変数
+        // ===================================
+        let sensorCalibration = 0;  // センサー補正値（度）
+        let currentAngle = 0;       // 現在のセンサー角度（度）
+        let lastRawBeta = 0;        // 生のbeta値を保存
+        let lastRawGamma = 0;       // 生のgamma値を保存
+        let sensorPermissionGranted = false;
+        let isLandscape = false;    // 横持ち=true, 縦持ち=false（初期値は縦持ち）
+
+        // ===================================
+        // DOM要素取得
+        // ===================================
+        const permissionOverlay = document.getElementById('permissionOverlay');
+        const startBtn = document.getElementById('startBtn');
+        const camera = document.getElementById('camera');
+        const distanceValue = document.getElementById('distanceValue');
+        const sensorStatus = document.getElementById('sensorStatus');
+        const angleValue = document.getElementById('angleValue');
+        const rangeBar = document.getElementById('rangeBar');
+        const rangeIndicator = document.getElementById('rangeIndicator');
+        const controlPanel = document.getElementById('controlPanel');
+        const togglePanelBtn = document.getElementById('togglePanelBtn');
+        const crosshair = document.querySelector('.crosshair');
+        
+        const aircraftAltInput = document.getElementById('aircraftAlt');
+        const targetAltInput = document.getElementById('targetAlt');
+        const maxRangeInput = document.getElementById('maxRange');
+        const markersInput = document.getElementById('markers');
+        const alertDistanceInput = document.getElementById('alertDistance');
+        const zeroBtnTop = document.getElementById('zeroBtnTop');
+        const calibratePlus = document.getElementById('calibratePlus');
+        const calibrateMinus = document.getElementById('calibrateMinus');
+        const calibrationValue = document.getElementById('calibrationValue');
+        
+        const orientLandscape = document.getElementById('orientLandscape');
+        const orientPortrait = document.getElementById('orientPortrait');
+
+        // ===================================
+        // 初期化: センサー許可リクエスト
+        // ===================================
+        startBtn.addEventListener('click', async () => {
+            try {
+                // iOS 13+ ではセンサー許可が必要
+                if (typeof DeviceOrientationEvent !== 'undefined' && 
+                    typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission === 'granted') {
+                        sensorPermissionGranted = true;
+                        initializeApp();
+                    } else {
+                        alert('センサーの許可が必要です');
+                    }
+                } else {
+                    // iOS 12以前、またはAndroid
+                    sensorPermissionGranted = true;
+                    initializeApp();
+                }
+            } catch (error) {
+                console.error('センサー許可エラー:', error);
+                alert('センサーの初期化に失敗しました');
+            }
+        });
+
+        // ===================================
+        // アプリ初期化
+        // ===================================
+        async function initializeApp() {
+            // オーバーレイを非表示
+            permissionOverlay.classList.add('hidden');
+
+            // カメラ起動
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',  // 背面カメラ
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    }
+                });
+                camera.srcObject = stream;
+                camera.play();
+            } catch (error) {
+                console.error('カメラエラー:', error);
+                alert('カメラの起動に失敗しました。設定を確認してください。');
+            }
+
+            // センサーイベント登録
+            window.addEventListeneletter-spacing: 3px;
             box-shadow: 0 0 30px rgba(0, 255, 65, 0.6), inset 0 0 20px rgba(0, 255, 65, 0.2);
             transition: all 0.3s;
             animation: pulse 2s infinite;
